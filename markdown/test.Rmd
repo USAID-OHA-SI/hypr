@@ -1,0 +1,141 @@
+---
+title: "Using R and Python to Create Tableau Extract"
+author: "Baboyma Kagniniwa"
+date: "2022-06-15"
+output: html_notebook
+---
+
+This is a sample code used to test [Tableau API](https://www.tableau.com/developer/tools/hyper-api) to generate [Tableau Extract](https://help.tableau.com/current/pro/desktop/en-us/extracting_data.htm) as `hyperfile`. This process leverages R and Python through `reticulate` R package located [here](https://rstudio.github.io/reticulate/). 
+
+Credits to [RStudio Team](https://rstudio.github.io/reticulate/articles/rstudio_ide.html), [Alexander](https://datastorydesign.com/python/tableau/2020/06/17/read-and-write-hyper-files-in-python.html), and stockoverflow for all the tips.
+
+## Configuration
+
+The configurations should be run once - except for when installing new packages / libraries.
+
+```{r setup, include=F, eval=F}
+# Install and load reticulate package
+# This will also prompt you to install r-miniconda
+
+install.packages("reticulate")
+
+# Environment name
+env <- "test-venv"
+
+# Create a virtual environment => env will located in ~/.virtualenvs/
+# Make sure to version of python matches the one in miniconda
+reticulate::virtualenv_create(envname = env, version = "3.8.10")
+
+# Activate venv
+reticulate::use_virtualenv(virtualenv = env)
+
+# Check configs
+reticulate::py_available()
+reticulate::py_version()
+reticulate::py_config()
+
+# Install Python Libraries
+reticulate::py_install(package = "pandas", envname = env)
+reticulate::py_install(package = "tableau-api-lib", envname = env)
+reticulate::py_install(package = "tableauhyperapi", envname = env)
+reticulate::py_install(package = "tableauhyperio", envname = env)
+
+```
+
+## Load Packages and Activate Environment
+
+```{r}
+library(reticulate)
+
+env <- "test-venv"
+
+use_virtualenv(virtualenv = env, required = TRUE)
+
+```
+
+## Check configs
+
+```{r}
+# Make sure the response is TRUE
+py_available()
+```
+
+```{r}
+# Confirm miniconda python version
+py_version()
+```
+
+```{r}
+# Confirm configurations
+py_config()
+```
+
+## Load sample data
+
+```{r warning=F, message=F}
+library(tidyverse)
+library(nycflights13)
+
+readr::write_csv(flights, file = "../Data/flights.csv", na = "")
+```
+
+## Read and filter data with python / pandas
+
+```{python}
+import pandas as pd
+
+flights = pd.read_csv("../Data/flights.csv")
+
+flights = flights[flights["dest"] == "ORD"]
+flights = flights[['carrier', 'dep_delay', 'arr_delay']]
+flights = flights.dropna()
+
+flights.head()
+
+```
+
+## Explore filtered data with R
+
+```{r}
+str(py$flights)
+head(py$flights)
+```
+
+## Visualize output data
+
+```{r}
+ggplot(py$flights, aes(carrier, arr_delay, color = carrier)) +
+  geom_point(show.legend = F) + 
+  geom_jitter(show.legend = F)
+```
+
+## Export output as Tableau Extract
+
+```{python}
+# Load TBL Hyper IO Library
+import tableauhyperio as hio
+
+# Output file name 
+output_file = "../Dataout/flights_output.hyper"
+
+# Writing a regular hyper file
+hio.to_hyper(flights, output_file)
+
+```
+
+## Validate Tableau Extract
+
+```{python}
+
+# Reading data from regular hyper file
+df = hio.read_hyper(output_file)
+
+df.head()
+
+```
+
+## Source Python code from R
+
+```{r}
+source_python("../Scripts/hello.py")
+```
