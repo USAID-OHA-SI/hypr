@@ -29,6 +29,7 @@ vignettes/*.pdf
 
 # knitr and R markdown default cache directories
 *_cache/
+*__pycache__/
 /cache/
 
 # Temporary files created by R markdown
@@ -44,6 +45,9 @@ vignettes/*.pdf
 .Ruserdata
 
 #Python - No libraries
+
+#nothing from ipynb
+markdown/.ipynb_checkpoints/
 
 #no data
 *.csv

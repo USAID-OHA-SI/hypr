@@ -1,0 +1,310 @@
+---
+title: "Bactch Import"
+author: "Baboyma Kagniniwa"
+date: "2022-06-22"
+output: html_notebook
+---
+
+## Load Packages and Activate Environment
+
+```{r}
+.rs.restartR()
+
+library(reticulate)
+
+env <- "test-hyper"
+#env <- "test-venv"
+
+use_virtualenv(virtualenv = env, required = TRUE)
+
+py_config()
+
+```
+
+## Generate Test Processed Files
+
+Find and Read Latest MSD Global PSNUxIM file
+
+```{r}
+library(tidyverse)
+library(vroom)
+library(gophr)
+library(glamr)
+
+source("../Scripts/utilities.R")
+
+dir_mer <- si_path() %>% paste0("../", .)
+dir_out <- "../Dataout"
+dir_csv <- dir_out %>% paste0(., "/MSD/PSNUxIM")
+
+file_psnu_im <- return_latest(folderpath = dir_mer, 
+                              pattern = "MER_.*_PSNU_IM_FY20-.*")
+
+df_psnu <- file_psnu_im %>% read_msd()
+
+```
+
+Identify Fiscal Years & Operating Units
+
+```{r}
+fys <- df_psnu %>% distinct(fiscal_year) %>% pull() %>% sort()
+ous <- df_psnu %>% distinct(operatingunit) %>% pull %>% sort
+```
+
+Extract Orgunits Reference Data set
+
+```{r}
+df_orgs <- df_psnu %>% 
+  select(operatingunit:dreams) %>% 
+  distinct()
+
+file_orgs <- paste0("MSD_PSNU_IM_FY20-22_Orgunits_", 
+                    str_extract(file_psnu_im, "\\d{8}"), ".csv")
+
+df_orgs %>% 
+  write_csv(x = ., file = file.path(dir_csv, file_orgs), na = "")
+```
+
+Extract Mechanisms Reference Data set
+
+```{r}
+file_mechs <- paste0("MSD_PSNU_IM_FY20-22_Mechanisms_", 
+                     str_extract(file_psnu_im, "\\d{8}"), ".csv")
+
+df_mechs <- df_psnu %>% 
+  select(funding_agency, mech_code, mech_name, 
+         award_number, starts_with("prime")) %>% 
+  distinct()
+
+df_mechs %>% 
+  write_csv(x = ., file = file.path(dir_csv, file_mechs), na = "")
+```
+
+Extract Data Elements
+
+```{r}
+file_de <- paste0("MSD_PSNU_IM_FY20-22_DataElements_", 
+                     str_extract(file_psnu_im, "\\d{8}"), ".csv")
+
+df_de <- df_psnu %>% 
+  select(fiscal_year, indicator:modality, source_name) %>% 
+  distinct() 
+
+df_de %>% 
+  write_csv(x = ., file = file.path(dir_csv, file_de), na = "")
+```
+
+Extract FY/OU Program Raw Data sets
+
+```{r}
+walk(ous, function(.x){
+  
+  print(paste0("OU: ", .x))
+  
+  walk(fys, function(.y){
+    
+    print(paste0("FY: ", .y))
+  
+    file_out <- paste0("MSD_PSNU_IM_FY", 
+                       str_sub(.y, 3, 4), "_", 
+                       str_replace(.x, "'", ""), "_", 
+                       str_extract(file_psnu_im, "\\d{8}"), ".csv")
+    
+    print(file_out)
+      
+    df_ou_fy <- df_psnu %>% 
+      filter(operatingunit == .x, fiscal_year == .y) 
+    
+    if (nrow(df_ou_fy) > 0) {
+      df_ou_fy %>% 
+        select(fiscal_year, psnuuid, mech_code, 
+               indicator:categoryoptioncomboname,
+               targets:last_col()) %>% 
+        #reshape_msd() %>% 
+        #mutate(fiscal_year = paste0("20", str_sub(period, 2, 4))) %>% 
+        write_csv(x = ., file = file.path(dir_csv, file_out), na = "")
+    }
+  })
+})
+
+```
+
+## Read Reference and Processed files into a Database (Hyperfile)
+
+Retrieve list of files to be ingested
+
+```{r}
+# list reference files
+ref_orgs_file <- list.files(path = dir_csv, 
+                            full.names = TRUE,
+                            pattern = "MSD_PSNU_IM_FY20-22_Org.*_\\d{8}.csv$")
+
+ref_mechs_file <- list.files(path = dir_csv, 
+                             full.names = TRUE,
+                             pattern = "MSD_PSNU_IM_FY20-22_Mech.*_\\d{8}.csv$")
+
+ref_de_file <- list.files(path = dir_csv, 
+                          full.names = TRUE,
+                          pattern = "MSD_PSNU_IM_FY20-22_DataE.*_\\d{8}.csv$")
+
+# list files with FY22 Data
+proc_fy22_files <- list.files(path = dir_csv, 
+                              full.names = TRUE,
+                              pattern = "MSD_PSNU_IM_FY22_.*_\\d{8}.csv$")
+
+# list all files
+proc_files <- list.files(path = dir_csv, 
+                         full.names = TRUE,
+                         pattern = "MSD_PSNU_IM_FY\\d{2}_.*_\\d{8}.csv$")
+
+# output file
+output_file = file_psnu_im %>% 
+  basename() %>%
+  str_replace(".zip$", ".hyper") %>% 
+  paste0("../Dataout/Hypers/", .)
+
+```
+
+Read csv files with python
+
+Note that `R` variables / objects can be accessed from `python` with `r.`. `py$` is used for the reverse.
+
+```{python}
+import pandas as pd
+df = pd.read_csv(r.ref_orgs_file)
+
+df.head()
+```
+
+Use python functions through modules
+
+```{python}
+#import os
+#os.path.abspath(os.path.join(".."))
+```
+
+```{python}
+import os
+from time import sleep
+import pandas as pd
+import pantab as pt
+from tableauhyperapi import TableDefinition, TableName, SqlType
+
+modules_path = os.path.abspath(os.path.join(".."))
+
+if modules_path not in sys.path:
+  sys.path.append(modules_path + "\\Scripts")
+  
+import utilities as util
+
+
+output_file = r.output_file
+
+util.prinf("Processing ...")
+
+util.prinf([output_file])
+
+# Orgs
+
+util.prinf(r.ref_orgs_file)
+
+df_orgs = util.pd.read_csv(r.ref_orgs_file)
+#df_orgs = util.csv_to_df(r.ref_orgs_file)
+
+pt.frame_to_hyper(df_orgs, database=output_file, table="Orgunits")
+
+# Mechs
+
+util.prinf(r.ref_mechs_file)
+
+df_mechs = util.pd.read_csv(r.ref_mechs_file)
+#df_mechs = util.csv_to_df(r.ref_mechs_file)
+
+pt.frame_to_hyper(df_mechs, database=output_file, table="Mechanisms", table_mode="a")
+
+# DataElements
+
+util.prinf(r.ref_de_file)
+
+df_de = util.pd.read_csv(r.ref_de_file)
+#df_mechs = util.csv_to_df(r.ref_de_file)
+
+pt.frame_to_hyper(df_de, database=output_file, table="DataElements", table_mode="a")
+
+# Data Table Definition
+# tbl_data = TableDefinition(
+#   TableName("msd", "PSNUxIM"),
+#   [
+#     TableDefinition.Column("fiscal_year", SqlType.text()),
+#     TableDefinition.Column("psnuuid", SqlType.text()),
+#     TableDefinition.Column("mech_code", SqlType.text()),
+#     TableDefinition.Column("indicator", SqlType.text()),
+#     TableDefinition.Column("numeratordenom", SqlType.text()),
+#     TableDefinition.Column("indicatortype", SqlType.text()),
+#     TableDefinition.Column("disaggregate", SqlType.text()),
+#     TableDefinition.Column("standardizeddisaggregate", SqlType.text()),
+#     TableDefinition.Column("categoryoptioncomboname", SqlType.text()),
+#     TableDefinition.Column("targets", SqlType.text()),
+#     TableDefinition.Column("qtr1", SqlType.text()),
+#     TableDefinition.Column("qtr2", SqlType.big_int()),
+#     TableDefinition.Column("qtr3", SqlType.big_int()),
+#     TableDefinition.Column("qtr4", SqlType.big_int()),
+#     TableDefinition.Column("cumulative", SqlType.big_int()),
+#     TableDefinition.Column("source_name", SqlType.text())
+#   ]
+# )
+
+tbl_data_types = {
+    "fiscal_year": "str",
+    "psnuuid": "str",
+    "mech_code": "str",
+    "indicator": "str",
+    "numeratordenom": "str",
+    "indicatortype": "str",
+    "disaggregate": "str",
+    "standardizeddisaggregate": "str",
+    "categoryoptioncomboname": "str",
+    "targets": "str",
+    "qtr1": "str",
+    "qtr2": "float",
+    "qtr3": "float",
+    "qtr4": "float",
+    "cumulative": "float",
+    "source_name": "str"
+}
+
+tbl_data = "PSNUxIM"
+
+
+print(f"Number of files #{len(r.proc_files)}")
+
+# load files 1 at the time
+for idx, ifile in enumerate(r.proc_files):
+
+  #print(f"Input file: {ifile}")
+  print(f"Input file #{idx}: {ifile}")
+
+  # Read csv files with pre-defined column data types
+  df_msd = pd.read_csv(ifile, dtype = tbl_data_types)
+  
+  # Mutate data structure
+  
+  # Wide format
+  # df_msd = df_msd.astype(tbl_data_types)
+  
+  # Long format
+  # df_msd.loc[:, df_msd.columns != "value"].astype('str')
+  # df_msd.loc[:, df_msd.columns == "value"].astype('float')
+  
+  # load file content to hyperfile through append mode
+  try:
+    pt.frame_to_hyper(df = df_msd, database=output_file, table=tbl_data, table_mode="a")
+  except Exception as e:
+    print(e)
+    continue
+  
+print("Done!")
+  
+```
+
+

@@ -21,13 +21,19 @@ install.packages("reticulate")
 
 # Environment name
 env <- "test-venv"
+#env <- "test-hyper"
+#env <- "test-from-cmd"
 
 # Create a virtual environment => env will located in ~/.virtualenvs/
 # Make sure to version of python matches the one in miniconda
-reticulate::virtualenv_create(envname = env, version = "3.8.10")
+# reticulate::py_version()
+reticulate::virtualenv_create(
+  envname = env, 
+  python = paste0(reticulate::miniconda_path(), "/python"),
+  version = reticulate::py_version())
 
 # Activate venv
-reticulate::use_virtualenv(virtualenv = env)
+reticulate::use_virtualenv(virtualenv = env, required = TRUE)
 
 # Check configs
 reticulate::py_available()
@@ -36,10 +42,16 @@ reticulate::py_config()
 
 # Install Python Libraries
 reticulate::py_install(package = "pandas", envname = env)
-reticulate::py_install(package = "tableau-api-lib", envname = env)
-reticulate::py_install(package = "tableauhyperapi", envname = env)
+reticulate::py_install(package = "pantab", envname = env)
 reticulate::py_install(package = "tableauhyperio", envname = env)
+reticulate::py_install(package = "tableauhyperapi", envname = env)
 
+# or install
+reticulate::virtualenv_install(envname = env, packages = "pandas")
+reticulate::virtualenv_install(envname = env, packages = "pantab")
+reticulate::virtualenv_install(envname = env, packages = "tableauhyperio")
+
+.rs.restartR()
 ```
 
 ## Load Packages and Activate Environment
@@ -47,13 +59,18 @@ reticulate::py_install(package = "tableauhyperio", envname = env)
 ```{r}
 library(reticulate)
 
-env <- "test-venv"
+env <- "test-hyper"
 
 use_virtualenv(virtualenv = env, required = TRUE)
 
 ```
 
 ## Check configs
+
+```{r}
+# Confirm configurations or force  default settings
+py_config()
+```
 
 ```{r}
 # Make sure the response is TRUE
@@ -65,10 +82,6 @@ py_available()
 py_version()
 ```
 
-```{r}
-# Confirm configurations
-py_config()
-```
 
 ## Load sample data
 
